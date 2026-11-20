@@ -1,0 +1,217 @@
+; config options go here.
+; Recursive resolver with DNS64 synthesis, a DoT (DNS over TLS) upstream
+; forwarder and cache isolation (forward-no-cache).  The mix of A, AAAA
+; (synthesized and native) queries is checked below, together with the
+; fact that the isolated cache does not serve stale upstream content.
+server:
+	target-fetch-policy: "0 0 0 0 0"
+	qname-minimisation: no
+	minimal-responses: yes
+	module-config: "dns64 iterator"
+	dns64-prefix: 64:ff9b::0/96
+forward-zone: name: "." forward-addr: 216.0.0.1@853
+	forward-tls-upstream: yes
+	forward-no-cache: yes
+CONFIG_END
+
+SCENARIO_BEGIN Test DNS64 synthesis over a DoT upstream with isolated cache and mixed queries.
+
+; --- time 0-15: first round of upstream answers ---
+RANGE_BEGIN 0 15
+	ADDRESS 216.0.0.1@853
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+a-only.example.com. IN A
+SECTION ANSWER
+a-only.example.com. IN A 10.20.30.40
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+synth.example.com. IN AAAA
+SECTION ANSWER
+SECTION AUTHORITY
+example.com. 300 IN SOA ns.example.com. host.example.com. 5 86400 7200 604800 300
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+synth.example.com. IN A
+SECTION ANSWER
+synth.example.com. IN A 10.20.30.42
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+native.example.com. IN AAAA
+SECTION ANSWER
+native.example.com. 3600 IN AAAA 2001:db8::5
+ENTRY_END
+RANGE_END
+
+; --- time 16-30: upstream changed answers, must be fetched again ---
+RANGE_BEGIN 16 30
+	ADDRESS 216.0.0.1@853
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+a-only.example.com. IN A
+SECTION ANSWER
+a-only.example.com. IN A 10.20.30.41
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+synth.example.com. IN AAAA
+SECTION ANSWER
+SECTION AUTHORITY
+example.com. 300 IN SOA ns.example.com. host.example.com. 5 86400 7200 604800 300
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+synth.example.com. IN A
+SECTION ANSWER
+synth.example.com. IN A 10.20.30.43
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+native.example.com. IN AAAA
+SECTION ANSWER
+native.example.com. 3600 IN AAAA 2001:db8::6
+ENTRY_END
+RANGE_END
+
+; mixed query 1: plain A lookup is passed through unchanged.
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+a-only.example.com. IN A
+ENTRY_END
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+a-only.example.com. IN A
+SECTION ANSWER
+a-only.example.com. IN A 10.20.30.40
+ENTRY_END
+
+; mixed query 2: AAAA without an upstream record is DNS64 synthesized
+; from the internal A subquery (10.20.30.42 -> 64:ff9b::a14:1e2a).
+STEP 12 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+synth.example.com. IN AAAA
+ENTRY_END
+STEP 13 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+synth.example.com. IN AAAA
+SECTION ANSWER
+synth.example.com. 3600 IN AAAA 64:ff9b::a14:1e2a
+ENTRY_END
+
+; mixed query 3: a native AAAA record is passed through, no synthesis.
+STEP 14 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+native.example.com. IN AAAA
+ENTRY_END
+STEP 15 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+native.example.com. IN AAAA
+SECTION ANSWER
+native.example.com. 3600 IN AAAA 2001:db8::5
+ENTRY_END
+
+; time passes but the records would still have been fresh if cached.
+STEP 16 TIME_PASSES ELAPSE 10
+
+; cache isolation: repeat the A query, the new upstream answer (10.20.30.41)
+; must be fetched instead of serving the cached 10.20.30.40.
+STEP 20 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+a-only.example.com. IN A
+ENTRY_END
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+a-only.example.com. IN A
+SECTION ANSWER
+a-only.example.com. IN A 10.20.30.41
+ENTRY_END
+
+; cache isolation for the synthesized AAAA: the internal A answer changed
+; (10.20.30.43), so the newly synthesized AAAA is 64:ff9b::a14:1e2b.
+STEP 22 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+synth.example.com. IN AAAA
+ENTRY_END
+STEP 23 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+synth.example.com. IN AAAA
+SECTION ANSWER
+synth.example.com. 3600 IN AAAA 64:ff9b::a14:1e2b
+ENTRY_END
+
+; cache isolation for the native AAAA: fresh upstream value 2001:db8::6.
+STEP 24 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+native.example.com. IN AAAA
+ENTRY_END
+STEP 25 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR RD RA
+MATCH opcode qname qtype all
+SECTION QUESTION
+native.example.com. IN AAAA
+SECTION ANSWER
+native.example.com. 3600 IN AAAA 2001:db8::6
+ENTRY_END
+
+SCENARIO_END

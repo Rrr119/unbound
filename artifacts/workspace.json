@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid29550",
+  "B": "/home/dev/feedback/uid29550",
+  "sha": "a48dc6a69ff687a08ca48d2655ce1a25ad1f802d",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "NLnetLabs",
+    "repo": "unbound",
+    "sha": "a48dc6a69ff687a08ca48d2655ce1a25ad1f802d"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "unbound",
+    "cloneUrl": "https://github.com/Rrr119/unbound.git"
+  },
+  "at": "2026-11-20T05:31:07.040Z"
+}

@@ -1,3 +1,8 @@
+20 November 2026: Wouter
+	- Test for recursive resolution with DNS64 synthesis, a DoT
+	  (forward-tls-upstream) upstream and cache isolation
+	  (forward-no-cache): testdata/dns64_dot_nocache_mixed.rpl.
+
 19 November 2026: Wouter
 	- Add allow-proxy: netblock config that sets what peers are
 	  allowed to use PROXYv2. This limits the proxy access to
